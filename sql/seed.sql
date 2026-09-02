@@ -1,0 +1,2 @@
+-- Seed products from shared/products.js are also emitted as seed-data.json by the build script.
+-- Run schema.sql first, then seed-data.sql.
