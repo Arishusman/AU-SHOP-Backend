@@ -16,8 +16,4 @@ const { default: app } = await import("./app.js");
 app.listen(3000);
 
 
-
-const debugEnv = env;
-
-app.get("/api/debug-cloudflare-env", (req, res) => res.json({SUPABASE_URL:Boolean(debugEnv.SUPABASE_URL),SUPABASE_SERVICE_ROLE_KEY:Boolean(debugEnv.SUPABASE_SERVICE_ROLE_KEY),RESEND_API_KEY:Boolean(debugEnv.RESEND_API_KEY),ADMIN_USERNAME:Boolean(debugEnv.ADMIN_USERNAME),ADMIN_PASSWORD:Boolean(debugEnv.ADMIN_PASSWORD),ADMIN_EMAIL:Boolean(debugEnv.ADMIN_EMAIL)}));
 export default httpServerHandler({ port: 3000 });
