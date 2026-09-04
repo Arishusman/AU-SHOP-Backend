@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "au-shop-backend",
+  "name": "au-shop-latest-backend",
   "main": "src/worker.ts",
   "compatibility_date": "2026-09-04",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true
 }
