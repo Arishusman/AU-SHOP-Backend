@@ -4,6 +4,7 @@ import { httpServerHandler } from "cloudflare:node";
 process.env.SUPABASE_URL = env.SUPABASE_URL;
 process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
 process.env.RESEND_API_KEY = env.RESEND_API_KEY;
+process.env.BREVO_API_KEY = env.BREVO_API_KEY;
 process.env.ADMIN_USERNAME = env.ADMIN_USERNAME;
 process.env.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
 process.env.ADMIN_EMAIL = env.ADMIN_EMAIL;
