@@ -41,7 +41,35 @@ app.post('/api/reviews',async(req,res)=>{if(!supa)return fail(res,'Supabase is n
 app.patch('/api/reviews/:id',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.delete('/api/reviews/:id',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('reviews').delete().eq('id',req.params.id);if(error)return fail(res,error.message);ok(res,{deleted:true})});
 app.get('/api/orders',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('orders').select('*,order_items(*)').order('created_at',{ascending:false});if(error)return fail(res,error.message,500);ok(res,data)});
-app.post('/api/orders',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const order={...req.body,order_id:req.body.order_id||`AU-${Date.now().toString(36).toUpperCase()}`};const {data,error}=await supa.from('orders').insert(order).select().single();if(error)return fail(res,error.message);ok(res,data)});
+app.post('/api/orders',async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const {items=[],...body}=req.body||{};
+  const order={
+    ...body,
+    order_id:body.order_id||`AU-${Date.now().toString(36).toUpperCase()}`
+  };
+  const {data,error}=await supa.from('orders').insert(order).select().single();
+  if(error)return fail(res,error.message);
+
+  if(Array.isArray(items)&&items.length){
+    const rows=items.map(p=>({
+      order_id:data.id,
+      product_id:p.id,
+      name:p.name,
+      price:Number(p.price)||0,
+      quantity:Number(p.qty||p.quantity||1)
+    }));
+    const {error:itemError}=await supa.from('order_items').insert(rows);
+    if(itemError){
+      await supa.from('orders').delete().eq('id',data.id);
+      return fail(res,itemError.message,400);
+    }
+  }
+
+  const {data:full,error:fullError}=await supa.from('orders').select('*,order_items(*)').eq('id',data.id).single();
+  if(fullError)return fail(res,fullError.message,500);
+  ok(res,full);
+});
 app.patch('/api/orders/:id/status',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const allowed=['in progress','in shipping','delivered'];if(req.body.delivery_status&&!allowed.includes(req.body.delivery_status))return fail(res,'Invalid delivery status');const payment=['COD','in review','rejected','approved'];if(req.body.payment_status&&!payment.includes(req.body.payment_status))return fail(res,'Invalid payment status');const {data,error}=await supa.from('orders').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.post('/api/orders/:id/cancel',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('orders').update({cancelled:true,delivery_status:'cancelled'}).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.delete('/api/orders/:id',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('orders').delete().eq('id',req.params.id);if(error)return fail(res,error.message);ok(res,{deleted:true})});
