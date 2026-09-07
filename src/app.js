@@ -1,8 +1,13 @@
+
 import express from 'express'; import cors from 'cors'; import rateLimit from 'express-rate-limit'; import {createClient} from '@supabase/supabase-js'; import bcrypt from 'bcryptjs'; import {v4 as uuid} from 'uuid'; import multer from 'multer'; import crypto from 'node:crypto';
 const sendBrevoEmail=async(to,subject,html)=>{if(!process.env.BREVO_API_KEY)return {error:'Brevo is not configured'};const r=await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',headers:{accept:'application/json','api-key':process.env.BREVO_API_KEY.trim(),'content-type':'application/json'},body:JSON.stringify({sender:{name:'AU SHOP',email:'arishusm12an@gmail.com'},to:[{email:to}],subject,htmlContent:html})});if(!r.ok){let e='Brevo email failed';try{const j=await r.json();e=j.message||e}catch{}return {error:e}}return {ok:true}};
 const app=express(); app.use(cors({origin:process.env.FRONTEND_URL||'http://localhost:3000'})); app.use(express.json({limit:'4mb'})); app.use(rateLimit({windowMs:60_000,max:120}));
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024}});
-const supa=process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY):null; const otps=new Map(); const adminTokens=new Map();
+const supa=process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY):null;
+const otps=new Map();
+const authSecret=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.ADMIN_PASSWORD||process.env.BREVO_API_KEY;
+const signAuth=(payload)=>{const raw=Buffer.from(JSON.stringify(payload)).toString("base64url");const sig=crypto.createHmac("sha256",authSecret).update(raw).digest("base64url");return raw+"."+sig};
+const verifyAuth=(token)=>{try{const [raw,sig]=String(token||"").split(".");if(!raw||!sig)return null;const expected=crypto.createHmac("sha256",authSecret).update(raw).digest("base64url");if(!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;const payload=JSON.parse(Buffer.from(raw,"base64url").toString());if(!payload.exp||payload.exp<Date.now())return null;return payload}catch{return null}};
 const ok=(res,data)=>res.json({ok:true,data}); const fail=(res,msg,code=400)=>res.status(code).json({ok:false,error:msg});
 app.get('/api/health',(req,res)=>ok(res,{service:'A.U SHOP API',supabase:!!supa,brevo:!!process.env.BREVO_API_KEY}));
 app.post('/api/auth/send-code',async(req,res)=>{
@@ -15,19 +20,9 @@ if(r.error)return fail(res,r.error,502);
 ok(res,{message:'Verification code sent'});
 });
 app.post('/api/auth/verify-code',(req,res)=>{const {email,code}=req.body||{};const x=otps.get(email);if(!x||x.expires<Date.now()||x.code!==String(code))return fail(res,'Invalid or expired code',401);otps.delete(email);ok(res,{verified:true,user:{email}})});
-app.post('/api/admin/login',async(req,res)=>{
-const {username,password}=req.body||{};
-const validUser=username===process.env.ADMIN_USERNAME||username===process.env.ADMIN_EMAIL;
-const validPass=password===process.env.ADMIN_PASSWORD;
-if(!validUser||!validPass)return fail(res,'Invalid admin credentials',401);
-const code=String(Math.floor(100000+Math.random()*900000));
-otps.set(process.env.ADMIN_EMAIL,{code,expires:Date.now()+10*60*1000});
-const r=await sendBrevoEmail(process.env.ADMIN_EMAIL,'A.U SHOP admin verification',`<h2>Admin verification</h2><p>Your code: <b>${code}</b></p>`);
-if(r.error)return fail(res,r.error,502);
-ok(res,{challenge:true});
-});
-app.post('/api/admin/verify',(req,res)=>{const {code}=req.body||{};const x=otps.get(process.env.ADMIN_EMAIL);if(!x||x.expires<Date.now()||x.code!==String(code))return fail(res,'Invalid or expired code',401);otps.delete(process.env.ADMIN_EMAIL);const token=crypto.randomBytes(32).toString('hex');adminTokens.set(token,Date.now()+12*60*60*1000);ok(res,{token,role:'admin'})});
-const requireAdmin=(req,res,next)=>{const h=req.headers.authorization||'';const token=h.startsWith('Bearer ')?h.slice(7):'';const expires=adminTokens.get(token);if(!expires||expires<Date.now()){if(token)adminTokens.delete(token);return fail(res,'Admin authentication required',401)}next()};
+app.post('/api/admin/login',async(req,res)=>{const {username,password}=req.body||{};const validUser=username===process.env.ADMIN_USERNAME||username===process.env.ADMIN_EMAIL;const validPass=password===process.env.ADMIN_PASSWORD;if(!validUser||!validPass)return fail(res,'Invalid admin credentials',401);const code=String(Math.floor(100000+Math.random()*900000));const exp=Date.now()+10*60*1000;const codeHash=crypto.createHash('sha256').update(code).digest('hex');const challenge=signAuth({type:'admin_otp',email:process.env.ADMIN_EMAIL,codeHash,exp});const r=await sendBrevoEmail(process.env.ADMIN_EMAIL,'A.U SHOP admin verification',`<h2>Admin verification</h2><p>Your code: <b>${code}</b></p>`);if(r.error)return fail(res,r.error,502);ok(res,{challenge});});
+app.post('/api/admin/verify',(req,res)=>{const {code,challenge}=req.body||{};const x=verifyAuth(challenge);const hash=crypto.createHash('sha256').update(String(code||'')).digest('hex');if(!x||x.type!=='admin_otp'||x.email!==process.env.ADMIN_EMAIL||x.codeHash!==hash)return fail(res,'Invalid or expired code',401);const token=signAuth({type:'admin_session',role:'admin',exp:Date.now()+12*60*60*1000});ok(res,{token,role:'admin'});});
+const requireAdmin=(req,res,next)=>{const h=req.headers.authorization||'';const token=h.startsWith('Bearer ')?h.slice(7):'';const session=verifyAuth(token);if(!session||session.type!=='admin_session'||session.role!=='admin')return fail(res,'Admin authentication required',401);next()};
 app.post('/api/upload/product-image',requireAdmin,upload.single('image'),async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);if(!req.file)return fail(res,'Image is required');if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();const path=`products/${Date.now()}-${uuid()}.${ext}`;const {error}=await supa.storage.from('product-images').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});if(error)return fail(res,error.message,400);const {data}=supa.storage.from('product-images').getPublicUrl(path);ok(res,{path,url:data.publicUrl})});
 
 app.post('/api/upload/payment-screenshot',upload.single('image'),async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);if(!req.file)return fail(res,'Payment screenshot is required');if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();const path=`payments/${Date.now()}-${uuid()}.${ext}`;const {error}=await supa.storage.from('payment-screenshots').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});if(error)return fail(res,error.message,400);const {data}=supa.storage.from('payment-screenshots').getPublicUrl(path);ok(res,{path,url:data.publicUrl})});app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
