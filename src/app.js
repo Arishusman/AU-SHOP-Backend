@@ -14,12 +14,14 @@ app.post('/api/auth/send-code',async(req,res)=>{
 const {email}=req.body||{};
 if(!email)return fail(res,'Email is required');
 const code=String(Math.floor(100000+Math.random()*900000));
-otps.set(email,{code,expires:Date.now()+10*60*1000});
+const exp=Date.now()+10*60*1000;
+const codeHash=crypto.createHash('sha256').update(code).digest('hex');
+const challenge=signAuth({type:'user_otp',email,codeHash,exp});
 const r=await sendBrevoEmail(email,'A.U SHOP verification code',`<div style="font-family:Arial"><h2>A.U SHOP</h2><p>Your verification code is <b>${code}</b>.</p><p>This code expires in 10 minutes.</p></div>`);
 if(r.error)return fail(res,r.error,502);
-ok(res,{message:'Verification code sent'});
+ok(res,{message:'Verification code sent',challenge});
 });
-app.post('/api/auth/verify-code',(req,res)=>{const {email,code}=req.body||{};const x=otps.get(email);if(!x||x.expires<Date.now()||x.code!==String(code))return fail(res,'Invalid or expired code',401);otps.delete(email);ok(res,{verified:true,user:{email}})});
+app.post('/api/auth/verify-code',(req,res)=>{const {email,code,challenge}=req.body||{};const x=verifyAuth(challenge);const hash=crypto.createHash('sha256').update(String(code||'' )).digest('hex');if(!x || x.type!=='user_otp' || x.email!==email || x.codeHash!==hash)return fail(res,'Invalid or expired code',401);ok(res,{verified:true,user:{email}})});
 app.post('/api/admin/login',async(req,res)=>{const {username,password}=req.body||{};const validUser=username===process.env.ADMIN_USERNAME||username===process.env.ADMIN_EMAIL;const validPass=password===process.env.ADMIN_PASSWORD;if(!validUser||!validPass)return fail(res,'Invalid admin credentials',401);const code=String(Math.floor(100000+Math.random()*900000));const exp=Date.now()+10*60*1000;const codeHash=crypto.createHash('sha256').update(code).digest('hex');const challenge=signAuth({type:'admin_otp',email:process.env.ADMIN_EMAIL,codeHash,exp});const r=await sendBrevoEmail(process.env.ADMIN_EMAIL,'A.U SHOP admin verification',`<h2>Admin verification</h2><p>Your code: <b>${code}</b></p>`);if(r.error)return fail(res,r.error,502);ok(res,{challenge});});
 app.post('/api/admin/verify',(req,res)=>{const {code,challenge}=req.body||{};const x=verifyAuth(challenge);const hash=crypto.createHash('sha256').update(String(code||'')).digest('hex');if(!x||x.type!=='admin_otp'||x.email!==process.env.ADMIN_EMAIL||x.codeHash!==hash)return fail(res,'Invalid or expired code',401);const token=signAuth({type:'admin_session',role:'admin',exp:Date.now()+12*60*60*1000});ok(res,{token,role:'admin'});});
 const requireAdmin=(req,res,next)=>{const h=req.headers.authorization||'';const token=h.startsWith('Bearer ')?h.slice(7):'';const session=verifyAuth(token);if(!session||session.type!=='admin_session'||session.role!=='admin')return fail(res,'Admin authentication required',401);next()};
