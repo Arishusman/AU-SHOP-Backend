@@ -1,6 +1,6 @@
 import 'dotenv/config';
-import express from 'express'; import cors from 'cors'; import rateLimit from 'express-rate-limit'; import {createClient} from '@supabase/supabase-js'; import {Resend} from 'resend'; import bcrypt from 'bcryptjs'; import {v4 as uuid} from 'uuid';
-const app=express(); const PORT=process.env.PORT||4000; app.use(cors({origin:process.env.FRONTEND_URL||'http://localhost:3000'})); app.use(express.json({limit:'4mb'})); app.use(rateLimit({windowMs:60_000,max:120}));
+import express from 'express'; import cors from 'cors'; import rateLimit from 'express-rate-limit'; import {createClient} from '@supabase/supabase-js'; import {Resend} from 'resend'; import bcrypt from 'bcryptjs'; import {v4 as uuid} from 'uuid'; import multer from 'multer';
+const app=express(); const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024}}); const PORT=process.env.PORT||4000; app.use(cors({origin:process.env.FRONTEND_URL||'http://localhost:3000'})); app.use(express.json({limit:'4mb'})); app.use(rateLimit({windowMs:60_000,max:120}));
 const supa=process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY):null; const resend=process.env.RESEND_API_KEY?new Resend(process.env.RESEND_API_KEY):null; const otps=new Map();
 const ok=(res,data)=>res.json({ok:true,data}); const fail=(res,msg,code=400)=>res.status(code).json({ok:false,error:msg});
 app.get('/api/health',(req,res)=>ok(res,{service:'A.U SHOP API',supabase:!!supa,resend:!!resend}));
@@ -19,6 +19,42 @@ app.get('/api/reviews',async(req,res)=>{if(!supa)return ok(res,{items:[]});const
 app.post('/api/reviews',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').insert(req.body).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.patch('/api/reviews/:id',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.delete('/api/reviews/:id',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('reviews').delete().eq('id',req.params.id);if(error)return fail(res,error.message);ok(res,{deleted:true})});
+
+app.post('/api/upload/blog-image',upload.single('image'),async(req,res)=>{
+ if(!supa)return fail(res,'Supabase is not configured',503);
+ if(!req.file)return fail(res,'Image is required');
+ if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');
+ const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();
+ const path='blogs/'+Date.now()+'-'+uuid()+'.'+ext;
+ const {error}=await supa.storage.from('product-images').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});
+ if(error)return fail(res,error.message,400);
+ const {data}=supa.storage.from('product-images').getPublicUrl(path);
+ ok(res,{path,url:data.publicUrl});
+});
+app.get('/api/blogs',async(req,res)=>{
+ if(!supa)return ok(res,[]);
+ const {data,error}=await supa.from('blogs').select('*').order('created_at',{ascending:false});
+ if(error)return fail(res,error.message,500);
+ ok(res,data);
+});
+app.post('/api/blogs',async(req,res)=>{
+ if(!supa)return fail(res,'Supabase is not configured',503);
+ const {data,error}=await supa.from('blogs').insert(req.body).select().single();
+ if(error)return fail(res,error.message,400);
+ ok(res,data);
+});
+app.patch('/api/blogs/:id',async(req,res)=>{
+ if(!supa)return fail(res,'Supabase is not configured',503);
+ const {data,error}=await supa.from('blogs').update({...req.body,updated_at:new Date().toISOString()}).eq('id',req.params.id).select().single();
+ if(error)return fail(res,error.message,400);
+ ok(res,data);
+});
+app.delete('/api/blogs/:id',async(req,res)=>{
+ if(!supa)return fail(res,'Supabase is not configured',503);
+ const {error}=await supa.from('blogs').delete().eq('id',req.params.id);
+ if(error)return fail(res,error.message,400);
+ ok(res,{deleted:true});
+});
 app.get('/api/orders',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('orders').select('*,order_items(*)').order('created_at',{ascending:false});if(error)return fail(res,error.message,500);ok(res,data)});
 app.post('/api/orders',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const order={...req.body,order_id:req.body.order_id||`AU-${Date.now().toString(36).toUpperCase()}`};const {data,error}=await supa.from('orders').insert(order).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.patch('/api/orders/:id/status',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const allowed=['in progress','in shipping','delivered'];if(req.body.delivery_status&&!allowed.includes(req.body.delivery_status))return fail(res,'Invalid delivery status');const payment=['COD','in review','rejected','approved'];if(req.body.payment_status&&!payment.includes(req.body.payment_status))return fail(res,'Invalid payment status');const {data,error}=await supa.from('orders').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});

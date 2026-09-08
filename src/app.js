@@ -27,7 +27,18 @@ app.post('/api/admin/verify',(req,res)=>{const {code,challenge}=req.body||{};con
 const requireAdmin=(req,res,next)=>{const h=req.headers.authorization||'';const token=h.startsWith('Bearer ')?h.slice(7):'';const session=verifyAuth(token);if(!session||session.type!=='admin_session'||session.role!=='admin')return fail(res,'Admin authentication required',401);next()};
 app.post('/api/upload/product-image',requireAdmin,upload.single('image'),async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);if(!req.file)return fail(res,'Image is required');if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();const path=`products/${Date.now()}-${uuid()}.${ext}`;const {error}=await supa.storage.from('product-images').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});if(error)return fail(res,error.message,400);const {data}=supa.storage.from('product-images').getPublicUrl(path);ok(res,{path,url:data.publicUrl})});
 
-app.post('/api/upload/payment-screenshot',upload.single('image'),async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);if(!req.file)return fail(res,'Payment screenshot is required');if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();const path=`payments/${Date.now()}-${uuid()}.${ext}`;const {error}=await supa.storage.from('payment-screenshots').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});if(error)return fail(res,error.message,400);const {data}=supa.storage.from('payment-screenshots').getPublicUrl(path);ok(res,{path,url:data.publicUrl})});app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
+app.post('/api/upload/payment-screenshot',upload.single('image'),async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);if(!req.file)return fail(res,'Payment screenshot is required');if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();const path=`payments/${Date.now()}-${uuid()}.${ext}`;const {error}=await supa.storage.from('payment-screenshots').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});if(error)return fail(res,error.message,400);const {data}=supa.storage.from('payment-screenshots').getPublicUrl(path);ok(res,{path,url:data.publicUrl})});app.post('/api/upload/blog-image',requireAdmin,upload.single('image'),async(req,res)=>{
+if(!supa)return fail(res,'Supabase is not configured',503);
+if(!req.file)return fail(res,'Image is required');
+if(!req.file.mimetype.startsWith('image/'))return fail(res,'Only image files are allowed');
+const ext=(req.file.originalname.split('.').pop()||'jpg').toLowerCase();
+const path='blogs/'+Date.now()+'-'+uuid()+'.'+ext;
+const {error}=await supa.storage.from('product-images').upload(path,req.file.buffer,{contentType:req.file.mimetype,upsert:false});
+if(error)return fail(res,error.message,400);
+const {data}=supa.storage.from('product-images').getPublicUrl(path);
+ok(res,{path,url:data.publicUrl});
+});
+app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
 app.post('/api/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').insert(req.body).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.patch('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.delete('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('products').delete().eq('id',req.params.id);if(error)return fail(res,error.message,400);ok(res,{deleted:true})});
@@ -38,6 +49,31 @@ app.get('/api/reviews',async(req,res)=>{if(!supa)return ok(res,{items:[]});const
 app.post('/api/reviews',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').insert(req.body).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.patch('/api/reviews/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.delete('/api/reviews/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('reviews').delete().eq('id',req.params.id);if(error)return fail(res,error.message);ok(res,{deleted:true})});
+
+app.get('/api/blogs',async(req,res)=>{
+  if(!supa)return ok(res,[]);
+  const {data,error}=await supa.from('blogs').select('*').order('created_at',{ascending:false});
+  if(error)return fail(res,error.message,500);
+  ok(res,data);
+});
+app.post('/api/blogs',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const {data,error}=await supa.from('blogs').insert(req.body).select().single();
+  if(error)return fail(res,error.message,400);
+  ok(res,data);
+});
+app.patch('/api/blogs/:id',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const {data,error}=await supa.from('blogs').update({...req.body,updated_at:new Date().toISOString()}).eq('id',req.params.id).select().single();
+  if(error)return fail(res,error.message,400);
+  ok(res,data);
+});
+app.delete('/api/blogs/:id',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const {error}=await supa.from('blogs').delete().eq('id',req.params.id);
+  if(error)return fail(res,error.message,400);
+  ok(res,{deleted:true});
+});
 app.get('/api/orders',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('orders').select('*,order_items(*)').order('created_at',{ascending:false});if(error)return fail(res,error.message,500);ok(res,data)});
 app.post('/api/orders',async(req,res)=>{
   if(!supa)return fail(res,'Supabase is not configured',503);
