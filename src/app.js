@@ -38,6 +38,127 @@ if(error)return fail(res,error.message,400);
 const {data}=supa.storage.from('product-images').getPublicUrl(path);
 ok(res,{path,url:data.publicUrl});
 });
+
+// =============================
+// HOME CONFIG
+// =============================
+
+app.get('/api/home-config', async (req, res) => {
+  if (!supa) return fail(res, 'Supabase is not configured', 503);
+
+  try {
+    const [catResult, productResult] = await Promise.all([
+      supa
+        .from('home_categories')
+        .select('category_id,enabled,sort_order')
+        .eq('enabled', true)
+        .order('sort_order'),
+
+      supa
+        .from('home_category_products')
+        .select('category_id,product_id,enabled,sort_order')
+        .eq('enabled', true)
+        .order('sort_order')
+    ]);
+
+    if (catResult.error) return fail(res, catResult.error.message, 500);
+    if (productResult.error) return fail(res, productResult.error.message, 500);
+
+    return ok(res, {
+      categories: catResult.data || [],
+      products: productResult.data || []
+    });
+  } catch (e) {
+    return fail(
+      res,
+      e instanceof Error ? e.message : 'Unable to load home configuration',
+      500
+    );
+  }
+});
+
+app.get('/api/home-categories', async (req, res) => {
+  if (!supa) return fail(res, 'Supabase is not configured', 503);
+
+  const { data, error } = await supa
+    .from('home_categories')
+    .select('*')
+    .order('sort_order');
+
+  if (error) return fail(res, error.message, 500);
+
+  return ok(res, data || []);
+});
+
+app.post('/api/home-categories', async (req, res) => {
+  if (!supa) return fail(res, 'Supabase is not configured', 503);
+
+  const {
+    category_id,
+    enabled = true,
+    sort_order = 0
+  } = req.body || {};
+
+  if (!category_id) return fail(res, 'category_id is required');
+
+  const { data, error } = await supa
+    .from('home_categories')
+    .upsert(
+      { category_id, enabled, sort_order },
+      { onConflict: 'category_id' }
+    )
+    .select()
+    .single();
+
+  if (error) return fail(res, error.message, 400);
+
+  return ok(res, data);
+});
+
+app.post('/api/home-category-products', async (req, res) => {
+  if (!supa) return fail(res, 'Supabase is not configured', 503);
+
+  const {
+    category_id,
+    product_id,
+    enabled = true,
+    sort_order = 0
+  } = req.body || {};
+
+  if (!category_id || product_id === undefined || product_id === null) {
+    return fail(res, 'category_id and product_id are required');
+  }
+
+  if (enabled === false) {
+    const { error } = await supa
+      .from('home_category_products')
+      .delete()
+      .match({ category_id, product_id });
+
+    if (error) return fail(res, error.message, 400);
+
+    return ok(res, { updated: true });
+  }
+
+  const { data, error } = await supa
+    .from('home_category_products')
+    .upsert(
+      {
+        category_id,
+        product_id,
+        enabled: true,
+        sort_order: Number(sort_order) || 0
+      },
+      { onConflict: 'category_id,product_id' }
+    )
+    .select()
+    .single();
+
+  if (error) return fail(res, error.message, 400);
+
+  return ok(res, data);
+});
+
 app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
 app.post('/api/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').insert(req.body).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.patch('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
