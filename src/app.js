@@ -1,7 +1,7 @@
 
 import express from 'express'; import cors from 'cors'; import rateLimit from 'express-rate-limit'; import {createClient} from '@supabase/supabase-js'; import bcrypt from 'bcryptjs'; import {v4 as uuid} from 'uuid'; import multer from 'multer'; import crypto from 'node:crypto';
 const sendBrevoEmail=async(to,subject,html)=>{if(!process.env.BREVO_API_KEY)return {error:'Brevo is not configured'};const r=await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',headers:{accept:'application/json','api-key':process.env.BREVO_API_KEY.trim(),'content-type':'application/json'},body:JSON.stringify({sender:{name:'AU SHOP',email:'arishusm12an@gmail.com'},to:[{email:to}],subject,htmlContent:html})});if(!r.ok){let e='Brevo email failed';try{const j=await r.json();e=j.message||e}catch{}return {error:e}}return {ok:true}};
-const app=express(); app.use(cors({origin:process.env.FRONTEND_URL||'http://localhost:3000'})); app.use(express.json({limit:'4mb'})); app.use(rateLimit({windowMs:60_000,max:120}));
+const app=express(); app.use(cors({origin:process.env.FRONTEND_URL||'https://au-shop-ruby.vercel.app'})); app.use(express.json({limit:'4mb'})); app.use(rateLimit({windowMs:60_000,max:120}));
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024}});
 const supa=process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY):null;
 const otps=new Map();
