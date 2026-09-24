@@ -159,6 +159,26 @@ app.post('/api/home-category-products', async (req, res) => {
   return ok(res, data);
 });
 
+app.get('/api/site-content',async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const {data,error}=await supa.from('site_content').select('content,updated_at').eq('id',1).single();
+  if(error)return fail(res,error.message,500);
+  ok(res,data?.content||{});
+});
+
+app.patch('/api/site-content',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+  const content=req.body?.content;
+  if(!content||typeof content!=='object')return fail(res,'content must be an object',400);
+  const {data,error}=await supa.from('site_content').upsert({
+    id:1,
+    content,
+    updated_at:new Date().toISOString()
+  }).select('content,updated_at').single();
+  if(error)return fail(res,error.message,500);
+  ok(res,data?.content||content);
+});
+
 app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
 app.post('/api/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').insert(req.body).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.patch('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
