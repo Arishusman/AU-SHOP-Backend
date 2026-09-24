@@ -3,13 +3,14 @@ import "dotenv/config";
 import express from 'express'; import cors from 'cors'; import rateLimit from 'express-rate-limit'; import {createClient} from '@supabase/supabase-js'; import bcrypt from 'bcryptjs'; import {v4 as uuid} from 'uuid'; import multer from 'multer'; import crypto from 'node:crypto';
 const sendBrevoEmail=async(to,subject,html)=>{if(!process.env.BREVO_API_KEY)return {error:'Brevo is not configured'};const r=await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',headers:{accept:'application/json','api-key':process.env.BREVO_API_KEY.trim(),'content-type':'application/json'},body:JSON.stringify({sender:{name:'AU SHOP',email:'arishusm12an@gmail.com'},to:[{email:to}],subject,htmlContent:html})});if(!r.ok){let e='Brevo email failed';try{const j=await r.json();e=j.message||e}catch{}return {error:e}}return {ok:true}};
 const app=express();
-app.use(cors({origin:process.env.FRONTEND_URL||'https://au-shop-ruby.vercel.app'}));
+app.use(cors());
 app.use(express.json({limit:'4mb'}));
 app.use(rateLimit({windowMs:60_000,max:120}));
 const authRateLimit=rateLimit({windowMs:10*60_000,max:10,standardHeaders:true,legacyHeaders:false,message:{ok:false,error:'Too many authentication attempts. Please try again later.'}});
 const reviewRateLimit=rateLimit({windowMs:10*60_000,max:10,standardHeaders:true,legacyHeaders:false,message:{ok:false,error:'Too many reviews submitted. Please try again later.'}});
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024}});
 const supa=process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY):null;
+const adminTokens=new Set();
 const otps=new Map();
 const authSecret=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.ADMIN_PASSWORD||process.env.BREVO_API_KEY;
 const signAuth=(payload)=>{const raw=Buffer.from(JSON.stringify(payload)).toString("base64url");const sig=crypto.createHmac("sha256",authSecret).update(raw).digest("base64url");return raw+"."+sig};
@@ -204,11 +205,50 @@ app.post('/api/home-category-products', requireAdmin, async (req, res) => {
   return ok(res, data);
 });
 
+
+app.get('/api/site-content',async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+
+  const {data,error}=await supa
+    .from('site_content')
+    .select('content,updated_at')
+    .eq('id',1)
+    .single();
+
+  if(error)return fail(res,error.message,500);
+
+  ok(res,data?.content||{});
+});
+
+app.patch('/api/site-content',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+
+  const content=req.body?.content;
+
+  if(!content||typeof content!=='object'){
+    return fail(res,'content must be an object',400);
+  }
+
+  const {data,error}=await supa
+    .from('site_content')
+    .upsert({
+      id:1,
+      content,
+      updated_at:new Date().toISOString()
+    })
+    .select('content,updated_at')
+    .single();
+
+  if(error)return fail(res,error.message,500);
+
+  ok(res,data?.content||content);
+});
+
 app.get('/api/products',async(req,res)=>{if(!supa)return ok(res,{source:'static',items:[]});const {data,error}=await supa.from('products').select('*').order('id');if(error)return fail(res,error.message,500);ok(res,{source:'supabase',items:data})});
 app.post('/api/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').insert(req.body).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.patch('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('products').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message,400);ok(res,data)});
 app.delete('/api/products/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('products').delete().eq('id',req.params.id);if(error)return fail(res,error.message,400);ok(res,{deleted:true})});
-app.get('/api/categories',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('categories').select('*,category_products(product_id)').order('name');if(error)return fail(res,error.message,500);ok(res,data)});
+app.get('/api/categories',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('categories').select('*,category_products(product_id)').order('sort_order',{ascending:true}).order('name',{ascending:true});if(error)return fail(res,error.message,500);ok(res,data)});
 app.post('/api/categories',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('categories').insert(req.body).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.get('/api/categories/:id/products',async(req,res)=>{
   if(!supa)return ok(res,{items:[]});
@@ -224,7 +264,7 @@ app.get('/api/categories/:id/products',async(req,res)=>{
 });
 
 app.post('/api/categories/:id/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {product_id,enabled}=req.body;const q=enabled?supa.from('category_products').upsert({category_id:req.params.id,product_id}):supa.from('category_products').delete().match({category_id:req.params.id,product_id});const {error}=await q;if(error)return fail(res,error.message);ok(res,{updated:true})});
-app.delete('/api/categories/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('categories').delete().eq('id',req.params.id);if(error)return fail(res,error.message,400);ok(res,{deleted:true})});
+app.post('/api/categories/reorder',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {items}=req.body;if(!Array.isArray(items))return fail(res,'items must be an array',400);for(let i=0;i<items.length;i++){const {error}=await supa.from('categories').update({sort_order:i}).eq('id',items[i].id);if(error)return fail(res,error.message,500)}ok(res,{updated:true})});app.delete('/api/categories/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('categories').delete().eq('id',req.params.id);if(error)return fail(res,error.message,400);ok(res,{deleted:true})});
 
 app.get('/api/reviews',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('reviews').select('*').order('created_at',{ascending:false});if(error)return fail(res,error.message,500);ok(res,data)});
 app.post('/api/reviews',reviewRateLimit,async(req,res)=>{
