@@ -188,6 +188,39 @@ app.post('/api/categories',requireAdmin,async(req,res)=>{if(!supa)return fail(re
 app.post('/api/categories/:id/products',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {product_id,enabled}=req.body;const q=enabled?supa.from('category_products').upsert({category_id:req.params.id,product_id}):supa.from('category_products').delete().match({category_id:req.params.id,product_id});const {error}=await q;if(error)return fail(res,error.message);ok(res,{updated:true})});
 app.delete('/api/categories/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {error}=await supa.from('categories').delete().eq('id',req.params.id);if(error)return fail(res,error.message,400);ok(res,{deleted:true})});
 
+app.post('/api/categories/reorder',requireAdmin,async(req,res)=>{
+  if(!supa)return fail(res,'Supabase is not configured',503);
+
+  const items=Array.isArray(req.body?.items)?req.body.items:[];
+
+  if(!items.length)return fail(res,'items are required',400);
+
+  try{
+    for(let i=0;i<items.length;i++){
+      const id=items[i]?.id;
+      if(id===undefined||id===null)continue;
+
+      const {error}=await supa
+        .from('categories')
+        .update({sort_order:i})
+        .eq('id',id);
+
+      if(error)return fail(res,error.message,400);
+    }
+
+    const {data,error}=await supa
+      .from('categories')
+      .select('*,category_products(product_id)')
+      .order('sort_order');
+
+    if(error)return fail(res,error.message,500);
+
+    return ok(res,data||[]);
+  }catch(e){
+    return fail(res,e instanceof Error?e.message:'Unable to reorder categories',500);
+  }
+});
+
 app.get('/api/reviews',async(req,res)=>{if(!supa)return ok(res,{items:[]});const {data,error}=await supa.from('reviews').select('*').order('created_at',{ascending:false});if(error)return fail(res,error.message,500);ok(res,data)});
 app.post('/api/reviews',async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').insert(req.body).select().single();if(error)return fail(res,error.message);ok(res,data)});
 app.patch('/api/reviews/:id',requireAdmin,async(req,res)=>{if(!supa)return fail(res,'Supabase is not configured',503);const {data,error}=await supa.from('reviews').update(req.body).eq('id',req.params.id).select().single();if(error)return fail(res,error.message);ok(res,data)});
